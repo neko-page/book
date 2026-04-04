@@ -3,8 +3,8 @@
 ##### 本站点也有CDN加速节点
 #### 相对位置[https://github.com/neko-page/book](https://github.com/neko-page/book)
 ---
-###已有小说
+### 已有小说
 ---
-####白日梦系列
+#### 白日梦系列
 [1.全球指令技术下降一万倍而我不变](daydream/001)
 ---
