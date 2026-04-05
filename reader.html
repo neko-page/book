@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>白日梦阅读器</title>
+  <style>
+    :root {
+      --dream-bg: linear-gradient(160deg, #e0c3fc 0%, #8ec5fc 100%);
+      --surface: rgba(255, 255, 255, 0.7);
+      --text: #5a5678;
+      --glass-bg: rgba(255, 255, 255, 0.6);
+      --border: rgba(255, 255, 255, 0.5);
+      --accent: #9b89b3;
+      --accent-hover: #7c6b96;
+      --shadow: 0 8px 32px rgba(149, 157, 165, 0.2);
+      --blur: blur(12px);
+      --fs: 18px;
+    }
+    body.dark {
+      --dream-bg: linear-gradient(160deg, #1e1b4b 0%, #312e81 50%, #4c1d95 100%);
+      --surface: rgba(30, 27, 75, 0.75);
+      --text: #e2e8f0;
+      --glass-bg: rgba(15, 15, 35, 0.7);
+      --border: rgba(255, 255, 255, 0.08);
+      --accent: #a5b4fc;
+      --accent-hover: #818cf8;
+      --shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--dream-bg);
+      background-attachment: fixed;
+      color: var(--text);
+      font: var(--fs)/1.9 "Noto Serif SC", "Source Han Serif CN", Georgia, system-ui, serif;
+      letter-spacing: 0.02em;
+      transition: all 0.4s ease;
+      padding: 16px;
+      min-height: 100vh;
+    }
+    .toolbar {
+      position: fixed; top: 0; left: 0; right: 0;
+      background: var(--glass-bg); backdrop-filter: var(--blur);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; z-index: 100;
+    }
+    #title-input {
+      background: transparent; border: none; border-bottom: 1px dashed var(--border);
+      color: var(--text); font-size: 1.1rem; font-weight: 600; width: 180px; outline: none; padding: 2px 4px;
+      font-family: inherit;
+    }
+    .ctrl { display: flex; gap: 6px; margin-left: auto; }
+    button {
+      background: rgba(255,255,255,0.3); border: 1px solid var(--border); color: var(--text);
+      padding: 6px 10px; border-radius: 10px; cursor: pointer; font-size: .85rem; transition: .2s ease;
+      font-family: system-ui, sans-serif;
+    }
+    button:hover { background: var(--accent); color: #fff; border-color: var(--accent); transform: translateY(-1px); }
+    .content {
+      background: var(--surface); backdrop-filter: var(--blur);
+      border-radius: 16px; padding: 2rem 1.5rem; box-shadow: var(--shadow);
+      max-width: 760px; margin: 65px auto 80px; white-space: pre-wrap; text-align: justify;
+    }
+    .toc {
+      position: fixed; top: 0; left: 0; bottom: 0; width: 280px;
+      background: var(--glass-bg); backdrop-filter: var(--blur);
+      border-right: 1px solid var(--border); transform: translateX(-100%); transition: .3s ease;
+      z-index: 110; overflow-y: auto; padding-top: 60px;
+    }
+    .toc.open { transform: translateX(0); }
+    .toc ul { list-style: none; }
+    .toc li { padding: 12px 20px; border-bottom: 1px solid var(--border); cursor: pointer; transition: .2s; }
+    .toc li:hover, .toc li.active { background: var(--accent); color: #fff; border-radius: 8px; margin: 0 10px; }
+    .mask { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 105; display: none; }
+    .mask.show { display: block; }
+    .page-nav {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: var(--glass-bg); backdrop-filter: var(--blur);
+      border-top: 1px solid var(--border); padding: 10px; display: flex; justify-content: space-between; z-index: 100;
+    }
+    .page-nav button { min-width: 100px; }
+    .page-nav button:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+    @media(max-width: 600px) {
+      .toolbar { flex-direction: column; align-items: stretch; }
+      .ctrl { margin-left: 0; justify-content: space-between; }
+      .toc { width: 85%; }
+      .content { margin-top: 80px; padding: 1.5rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <header class="toolbar">
+    <input id="title-input" type="text" placeholder="白日梦..." />
+    <div class="ctrl">
+      <button id="toc-btn">目录</button>
+      <button id="font-down">A-</button>
+      <button id="font-up">A+</button>
+      <button id="theme">夜梦</button>
+    </div>
+  </header>
+  <aside class="toc" id="toc"><ul id="toc-list"></ul></aside>
+  <div class="mask" id="mask"></div>
+  <main id="content" class="content">正在坠入梦境...</main>
+  <nav class="page-nav" id="page-nav">
+    <button id="prev" disabled>上一章</button>
+    <button id="next">下一章</button>
+  </nav>
+
+  <script type="module">
+    const $ = id => document.getElementById(id);
+    const params = new URLSearchParams(location.search);
+    const bookId = params.get('id');
+    if (!bookId) { $('content').textContent = '请在URL中添加参数，例如：reader.html?id=book1'; throw 'Missing ID'; }
+
+    const basePath = `./${bookId}/`;
+    const getStore = k => localStorage.getItem(`r-${bookId}-${k}`);
+    const setStore = (k, v) => localStorage.setItem(`r-${bookId}-${k}`, v);
+
+    let fs = parseInt(getStore('fs')) || 18;
+    document.documentElement.style.setProperty('--fs', fs + 'px');
+    document.body.style.fontSize = fs + 'px';
+    if (getStore('theme') === 'dark') document.body.classList.add('dark');
+
+    $('font-up').onclick = () => { if (fs < 28) { fs += 2; updateFs(); } };
+    $('font-down').onclick = () => { if (fs > 12) { fs -= 2; updateFs(); } };
+    function updateFs() { document.body.style.fontSize = fs + 'px'; setStore('fs', fs); }
+    $('theme').onclick = () => {
+      document.body.classList.toggle('dark');
+      $('theme').textContent = document.body.classList.contains('dark') ? '白日' : '夜梦';
+      setStore('theme', document.body.classList.contains('dark') ? 'dark' : 'light');
+    };
+    $('title-input').onchange = e => setStore('title', e.target.value);
+
+    function toggleToc(show) {
+      const isOpen = show ?? !$('toc').classList.contains('open');
+      $('toc').classList.toggle('open', isOpen);
+      $('mask').classList.toggle('show', isOpen);
+    }
+    $('toc-btn').onclick = () => toggleToc();
+    $('mask').onclick = () => toggleToc(false);
+
+    try {
+      const metaMod = await import(`${basePath}configuration-type.js`);
+      const { type, title } = metaMod.default;
+      $('title-input').value = getStore('title') || title || '未命名';
+
+      if (type === 'single') {
+        $('page-nav').style.display = 'none';
+        $('toc-btn').style.display = 'none';
+        const res = await fetch(`${basePath}txt.txt`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        $('content').textContent = await res.text();
+      } else if (type === 'chapters') {
+        const chapMod = await import(`${basePath}chapter-configuration.js`);
+        setupChapters(chapMod.default);
+      } else {
+        throw new Error('未知类型，请在配置中设置 type: "single" 或 "chapters"');
+      }
+    } catch (e) {
+      $('content').textContent = `加载失败：${e.message}\n\n请检查：1. 文件夹是否存在 2. 配置文件格式 3. 是否通过服务器运行`;
+      console.error(e);
+    }
+
+    function setupChapters(chapters) {
+      let idx = parseInt(getStore('idx')) || 0;
+      idx = Math.max(0, Math.min(idx, chapters.length - 1));
+
+      const renderToc = () => {
+        $('toc-list').innerHTML = chapters.map((c, i) =>
+          `<li class="${i === idx ? 'active' : ''}" data-i="${i}">${c.title}</li>`
+        ).join('');
+      };
+
+      const loadChapter = async (i) => {
+        idx = i;
+        setStore('idx', idx);
+        $('content').textContent = '加载中...';
+        $('prev').disabled = idx === 0;
+        $('next').disabled = idx === chapters.length - 1;
+        renderToc();
+        try {
+          const res = await fetch(`${basePath}${chapters[idx].file}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          $('content').textContent = await res.text();
+        } catch (e) {
+          $('content').textContent = `章节加载失败：${e.message}`;
+        }
+      };
+
+      $('toc-list').onclick = e => {
+        const i = +e.target.dataset.i;
+        if (!isNaN(i)) { loadChapter(i); toggleToc(false); }
+      };
+      $('prev').onclick = () => idx > 0 && loadChapter(idx - 1);
+      $('next').onclick = () => idx < chapters.length - 1 && loadChapter(idx + 1);
+      document.addEventListener('keydown', e => {
+        if (e.key === 'ArrowLeft' && idx > 0) loadChapter(idx - 1);
+        if (e.key === 'ArrowRight' && idx < chapters.length - 1) loadChapter(idx + 1);
+        if (e.key === 'Escape') toggleToc(false);
+      });
+
+      loadChapter(idx);
+    }
+  </script>
+</body>
+</html>
